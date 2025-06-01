@@ -1,7 +1,5 @@
-# Use official Python image
 FROM python:3.10-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies
@@ -22,5 +20,5 @@ ENV FLASK_APP=app.main
 ENV PORT=8000
 EXPOSE $PORT
 
-# Run Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "app.main:app"]
+# Run Gunicorn with correct module path
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "app.main:app"]
