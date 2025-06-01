@@ -3,9 +3,11 @@ from flask import Flask, request, jsonify
 import google.generativeai as genai
 from dotenv import load_dotenv
 from typing import Dict, Any
+from flask_cors import CORS  # Add this import
 
-# Create Flask application
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
 
 # Load environment variables
 load_dotenv()
