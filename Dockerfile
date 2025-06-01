@@ -21,4 +21,5 @@ ENV PORT=8000
 EXPOSE $PORT
 
 # Run Gunicorn with correct module path
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "app.main:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+
