@@ -2,12 +2,12 @@ import os
 from flask import Flask, request, jsonify
 import google.generativeai as genai
 from dotenv import load_dotenv
-from typing import Dict, Any
-from flask_cors import CORS  # Add this import
+from typing import Dict, Any, List
+from flask_cors import CORS
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
-
+CORS(app)
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +19,10 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-def build_negotiation_prompt(user_prompt: str, influencer_data: Dict[str, Any]) -> str:
+# Store conversations with expiration tracking
+conversation_history = {}
+
+def build_initial_prompt(user_prompt: str, influencer_data: Dict[str, Any]) -> str:
     profile_lines = []
     for key, value in influencer_data.items():
         if isinstance(value, (list, dict)):
@@ -29,7 +32,7 @@ def build_negotiation_prompt(user_prompt: str, influencer_data: Dict[str, Any]) 
     profile_section = "\n".join(profile_lines) if profile_lines else "None"
 
     return f"""
-You are Priyansh Arora, India's most audacious influencer negotiator. Craft an email with:
+You are writing an email as a representative from InfluAI. Craft an email with:
 1. SUBJECT (under 60 chars, attention-grabbing)
 2. Two newlines  
 3. BODY with:
@@ -38,6 +41,9 @@ You are Priyansh Arora, India's most audacious influencer negotiator. Craft an e
    - Clear deliverables and perks
    - Urgency and social proof
    - Multiple CTAs
+   - No bold formatting (remove ** or any markdown)
+   - For contact, use: "DM me @InfluAI" or "email us at hello@influai.com"
+   - Maintain professional but friendly tone
 
 --- Influencer Profile ---
 {profile_section}
@@ -49,7 +55,34 @@ Return EXACTLY:
 - First line = SUBJECT
 - A blank line
 - The full BODY
+- No mentions of "top influencer" or similar phrases
+- Clean, professional formatting without markdown
 """.strip()
+
+def clean_response(text: str) -> str:
+    """Clean up the AI response to remove markdown and unwanted phrases."""
+    # Remove markdown formatting
+    text = text.replace("**", "").replace("*", "")
+    # Replace any mentions of top/leading/best influencer
+    text = text.replace("top influencer", "team at InfluAI")
+    text = text.replace("leading negotiator", "InfluAI representative")
+    text = text.replace("best in the business", "InfluAI")
+    text = text.replace("Priyansh Arora", "InfluAI team")
+    # Ensure consistent contact info
+    text = text.replace("@[Your Instagram Handle]", "@InfluAI")
+    text = text.replace("@[Insert Instagram Handle]", "@InfluAI")
+    text = text.replace("[Your Phone Number]", "hello@influai.com")
+    return text.strip()
+
+def cleanup_old_conversations():
+    """Remove conversations older than 24 hours"""
+    now = datetime.now()
+    expired_keys = [
+        key for key, value in conversation_history.items()
+        if now - value["last_activity"] > timedelta(hours=24)
+    ]
+    for key in expired_keys:
+        del conversation_history[key]
 
 @app.route("/negotiate", methods=["POST"])
 def negotiate():
@@ -63,7 +96,7 @@ def negotiate():
     if not user_prompt:
         return jsonify({"error": "'userPrompt' is required."}), 400
 
-    full_prompt = build_negotiation_prompt(user_prompt, influencer_data)
+    full_prompt = build_initial_prompt(user_prompt, influencer_data)
 
     try:
         response = model.generate_content(full_prompt)
@@ -71,7 +104,7 @@ def negotiate():
         if not response.text:
             return jsonify({"error": "Empty response from Gemini"}), 500
             
-        ai_text = response.text.strip()
+        ai_text = clean_response(response.text.strip())
         
         parts = ai_text.split("\n\n", 1)
         subject = parts[0].strip() if len(parts) > 0 else ""
@@ -79,8 +112,7 @@ def negotiate():
 
         return jsonify({
             "subject": subject,
-            "body": body,
-            "full_prompt": full_prompt
+            "body": body
         })
 
     except Exception as e:
@@ -89,11 +121,90 @@ def negotiate():
             "type": type(e).__name__
         }), 500
 
+@app.route("/negotiate-conversation", methods=["POST"])
+def negotiate_conversation():
+    cleanup_old_conversations()  # Clean up before processing new request
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    conversation_id = data.get("conversationId")
+    user_message = data.get("userMessage", "").strip()
+    influencer_data = data.get("influencerData", {})
+
+    if not conversation_id:
+        return jsonify({"error": "'conversationId' is required."}), 400
+    if not user_message:
+        return jsonify({"error": "'userMessage' is required."}), 400
+
+    # Initialize new conversation if needed
+    if conversation_id not in conversation_history:
+        initial_prompt = build_initial_prompt(
+            "Initial negotiation email", 
+            influencer_data
+        )
+        conversation_history[conversation_id] = {
+            "history": [
+                {"role": "user", "content": initial_prompt},
+                {"role": "model", "content": model.generate_content(initial_prompt).text}
+            ],
+            "last_activity": datetime.now()
+        }
+    
+    # Add user message to history
+    conversation_history[conversation_id]["history"].append(
+        {"role": "user", "content": user_message}
+    )
+    conversation_history[conversation_id]["last_activity"] = datetime.now()
+
+    try:
+        # Generate response with full context
+        response = model.generate_content(
+            conversation_history[conversation_id]["history"]
+        )
+        
+        if not response.text:
+            return jsonify({"error": "Empty response from Gemini"}), 500
+            
+        ai_text = clean_response(response.text.strip())
+        
+        # Add AI response to history
+        conversation_history[conversation_id]["history"].append(
+            {"role": "model", "content": ai_text}
+        )
+
+        return jsonify({
+            "response": ai_text,
+            "conversationId": conversation_id
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Gemini API error: {str(e)}",
+            "type": type(e).__name__
+        }), 500
+
+@app.route("/end-conversation", methods=["POST"])
+def end_conversation():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    conversation_id = data.get("conversationId")
+    if not conversation_id:
+        return jsonify({"error": "'conversationId' is required."}), 400
+
+    if conversation_id in conversation_history:
+        del conversation_history[conversation_id]
+    
+    return jsonify({"status": "success", "message": "Conversation ended"})
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
         "status": "ok",
-        "model": "gemini-1.5-flash"
+        "model": "gemini-1.5-flash",
+        "active_conversations": len(conversation_history)
     })
 
 if __name__ == "__main__":
