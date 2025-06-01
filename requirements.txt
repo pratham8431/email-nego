@@ -5,3 +5,4 @@ gunicorn==21.2.0
 uvicorn==0.29.0
 flask-httpauth==4.8.0
 flask-limiter==3.5.0
+flask-cors
