@@ -4,9 +4,10 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from typing import Dict, Any
 
-# ----------------------------------------------------------------------------
-# 1) Load environment variables
-# ----------------------------------------------------------------------------
+# Initialize Flask app
+app = Flask(__name__)
+
+# Load environment variables
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
@@ -16,14 +17,6 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# ----------------------------------------------------------------------------
-# 2) Initialize Flask app
-# ----------------------------------------------------------------------------
-app = Flask(__name__)
-
-# ----------------------------------------------------------------------------
-# 3) Helper: Build negotiation prompt
-# ----------------------------------------------------------------------------
 def build_negotiation_prompt(user_prompt: str, influencer_data: Dict[str, Any]) -> str:
     profile_lines = []
     for key, value in influencer_data.items():
@@ -56,9 +49,6 @@ Return EXACTLY:
 - The full BODY
 """.strip()
 
-# ----------------------------------------------------------------------------
-# 4) POST /negotiate
-# ----------------------------------------------------------------------------
 @app.route("/negotiate", methods=["POST"])
 def negotiate():
     data = request.get_json()
@@ -81,7 +71,6 @@ def negotiate():
             
         ai_text = response.text.strip()
         
-        # Parse response
         parts = ai_text.split("\n\n", 1)
         subject = parts[0].strip() if len(parts) > 0 else ""
         body = parts[1].strip() if len(parts) > 1 else ai_text
@@ -89,7 +78,7 @@ def negotiate():
         return jsonify({
             "subject": subject,
             "body": body,
-            "full_prompt": full_prompt  # For debugging
+            "full_prompt": full_prompt
         })
 
     except Exception as e:
@@ -98,9 +87,6 @@ def negotiate():
             "type": type(e).__name__
         }), 500
 
-# ----------------------------------------------------------------------------
-# 5) Health check
-# ----------------------------------------------------------------------------
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
@@ -108,9 +94,6 @@ def health():
         "model": "gemini-1.5-flash"
     })
 
-# ----------------------------------------------------------------------------
-# 6) Run the app
-# ----------------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
