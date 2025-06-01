@@ -2,7 +2,7 @@ import os
 from flask import Flask, request, jsonify
 import google.generativeai as genai
 from dotenv import load_dotenv
-from typing import Dict, Any, List
+from typing import Dict, Any
 from flask_cors import CORS
 from datetime import datetime, timedelta
 
@@ -110,9 +110,20 @@ def negotiate():
         subject = parts[0].strip() if len(parts) > 0 else ""
         body = parts[1].strip() if len(parts) > 1 else ai_text
 
+        # Generate conversation ID for follow-ups
+        conversation_id = f"conv_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        conversation_history[conversation_id] = {
+            "history": [
+                {"role": "user", "parts": [full_prompt]},
+                {"role": "model", "parts": [ai_text]}
+            ],
+            "last_activity": datetime.now()
+        }
+
         return jsonify({
             "subject": subject,
-            "body": body
+            "body": body,
+            "conversationId": conversation_id
         })
 
     except Exception as e:
@@ -123,7 +134,7 @@ def negotiate():
 
 @app.route("/negotiate-conversation", methods=["POST"])
 def negotiate_conversation():
-    cleanup_old_conversations()  # Clean up before processing new request
+    cleanup_old_conversations()
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
@@ -143,25 +154,27 @@ def negotiate_conversation():
             "Initial negotiation email", 
             influencer_data
         )
+        initial_response = model.generate_content(initial_prompt)
+        initial_text = clean_response(initial_response.text.strip())
+        
         conversation_history[conversation_id] = {
             "history": [
-                {"role": "user", "content": initial_prompt},
-                {"role": "model", "content": model.generate_content(initial_prompt).text}
+                {"role": "user", "parts": [initial_prompt]},
+                {"role": "model", "parts": [initial_text]}
             ],
             "last_activity": datetime.now()
         }
     
     # Add user message to history
     conversation_history[conversation_id]["history"].append(
-        {"role": "user", "content": user_message}
+        {"role": "user", "parts": [user_message]}
     )
     conversation_history[conversation_id]["last_activity"] = datetime.now()
 
     try:
-        # Generate response with full context
-        response = model.generate_content(
-            conversation_history[conversation_id]["history"]
-        )
+        # Create chat with proper history format
+        chat = model.start_chat(history=conversation_history[conversation_id]["history"])
+        response = chat.send_message(user_message)
         
         if not response.text:
             return jsonify({"error": "Empty response from Gemini"}), 500
@@ -170,7 +183,7 @@ def negotiate_conversation():
         
         # Add AI response to history
         conversation_history[conversation_id]["history"].append(
-            {"role": "model", "content": ai_text}
+            {"role": "model", "parts": [ai_text]}
         )
 
         return jsonify({
@@ -201,6 +214,7 @@ def end_conversation():
 
 @app.route("/health", methods=["GET"])
 def health():
+    cleanup_old_conversations()
     return jsonify({
         "status": "ok",
         "model": "gemini-1.5-flash",
