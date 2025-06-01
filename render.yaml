@@ -3,7 +3,7 @@ services:
     name: influencer-negotiation-api
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app.main:app --bind 0.0.0.0:$PORT
+    startCommand: gunicorn app.app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: GEMINI_API_KEY
         value: your_actual_api_key_here
