@@ -1,7 +1,7 @@
 services:
   - type: web
     name: influencer-negotiation-api
-    plan: free  # Explicit free tier
+    plan: free
     dockerfilePath: Dockerfile
     envVars:
       - key: GEMINI_API_KEY
@@ -9,4 +9,3 @@ services:
       - key: PORT
         value: 8000
     healthCheckPath: /health
-    autoIdle: true  # Saves free tier hours
