@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: influencer-negotiation-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app.main:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        value: your_actual_api_key_here
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health
